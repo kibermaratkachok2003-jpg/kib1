@@ -1,3 +1,4 @@
+import json
 import logging
 import datetime
 import asyncio
@@ -151,7 +152,7 @@ async def get_alfa_crm_token() -> Optional[str]:
     """
 
     # Формируем URL для авторизации
-    auth_url = f"https://{CRM_URL}/v2api/auth/login"
+    auth_url = f"{CRM_URL}/v2api/auth/login"
 
     # Данные для авторизации
     auth_data = {
