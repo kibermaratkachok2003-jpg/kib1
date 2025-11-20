@@ -141,95 +141,87 @@ async def handle_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_alfa_crm_token() -> Optional[str]:
     """
     Асинхронно получает временный токен для работы с ALFA-CRM API
-
-    Args:
-        hostname (str): Доменное имя ALFA-CRM (например, 'demo.s20.online')
-        email (str): Email пользователя с доступом к v2api
-        api_key (str): API ключ пользователя
-
-    Returns:
-        Optional[str]: Токен авторизации или None в случае ошибки
     """
+    # ИСПРАВЛЕННЫЙ URL - убрал https://
+    auth_url = f"{CRM_URL}v2api/auth/login"
 
-    # Формируем URL для авторизации
-    auth_url = f"{CRM_URL}/v2api/auth/login"
-
-    # Данные для авторизации
     auth_data = {
         "email": "dissonance96@yandex.ru",
         "api_key": "e1b5f46a4f69fa86088742749376e22a"
     }
 
-    # Заголовки запроса
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
 
     try:
-        # Создаем асинхронную сессию и отправляем POST запрос
         async with aiohttp.ClientSession() as session:
             async with session.post(
                     auth_url,
-                    data=json.dumps(auth_data),
+                    json=auth_data,  # Используем json параметр вместо data
                     headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
 
-                # Проверяем успешность запроса
                 if response.status == 200:
-                    # Парсим ответ
                     response_data = await response.json()
                     token = response_data.get('token')
-
                     if token:
-                        print(f"Токен успешно получен. Срок жизни: 3600 секунд")
+                        logging.info(f"Токен успешно получен")
                         return token
                     else:
-                        print("Ошибка: токен не найден в ответе")
+                        logging.error("Токен не найден в ответе")
                         return None
-
                 else:
                     response_text = await response.text()
-                    print(f"Ошибка авторизации: {response.status}")
-                    print(f"Ответ сервера: {response_text}")
+                    logging.error(f"Ошибка авторизации: {response.status} - {response_text}")
                     return None
 
-    except aiohttp.ClientError as e:
-        print(f"Ошибка при выполнении запроса: {e}")
-        return None
-    except json.JSONDecodeError as e:
-        print(f"Ошибка при парсинге JSON ответа: {e}")
-        return None
-    except asyncio.TimeoutError:
-        print("Таймаут при получении токена")
-        return None
     except Exception as e:
-        print(f"Неожиданная ошибка: {e}")
+        logging.error(f"Ошибка при получении токена: {e}")
         return None
 
 
 async def send_to_crm(lead_data):
+    """
+    Отправка лида в CRM используя полученный токен
+    """
     try:
         token = await get_alfa_crm_token()
+        if not token:
+            logging.error("Не удалось получить токен для CRM")
+            return
+
         async with aiohttp.ClientSession() as session:
             data = {
-                "key": CRM_KEY,
                 "phone": lead_data['phone'],
-                "user_id": str(lead_data['user_id']),
-                "username": lead_data['username'],
-                "first_name": lead_data['first_name'],
-                "location": lead_data['location'],
-                "age": lead_data['age'],
-                "source": "telegram_bot",
-                "timestamp": lead_data['timestamp'].isoformat()
+                "name": lead_data['first_name'],
+                "custom_fields": {
+                    "user_id": str(lead_data['user_id']),
+                    "username": lead_data['username'],
+                    "location": lead_data['location'],
+                    "age": lead_data['age'],
+                    "source": "telegram_bot"
+                }
             }
-            async with session.post(f"{CRM_URL}api/1/lead/create?token={token}", json=data, timeout=10) as response:
+
+            # Используем v2api с полученным токеном
+            crm_create_url = f"{CRM_URL}v2api/1/lead/create"
+            headers = {
+                "X-ALFACRM-TOKEN": token,
+                "Content-Type": "application/json"
+            }
+
+            async with session.post(crm_create_url, json=data, headers=headers, timeout=10) as response:
                 if response.status == 200:
-                    logging.info("Lead sent to CRM")
+                    logging.info("Lead успешно отправлен в CRM")
                 else:
-                    logging.error(f"CRM error: {response.status}")
+                    response_text = await response.text()
+                    logging.error(f"CRM error: {response.status} - {response_text}")
+
     except Exception as e:
+        logging.error(f"Error sending to CRM: {e}")
         logging.error(f"Error sending to CRM: {e}")
 
 async def admin_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
